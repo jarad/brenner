@@ -1,0 +1,177 @@
+\documentclass[10pt]{article}
+
+\usepackage[margin=1in]{geometry}
+
+\title{Analysis for David Brenner}
+\author{Dr. Jarad Niemi}
+\date{\today}
+
+\begin{document}
+
+<<echo=F>>=
+options(width=120)
+opts_chunk$set(size='tiny')
+@
+
+\maketitle
+
+The main question here is the effect of treatment, specifically O2, on dormancy (a seed not germinating). The data here are the number (out of 100) of seeds that germinated. 
+
+<<>>=
+library(reshape2)
+library(plyr)
+
+d = read.csv("oxy.csv")
+d
+@
+
+Reshape data for analysis
+
+<<>>=
+d$TRT = factor(d$TRT, levels=levels(d$TRT)[c(2,1,3)]) # reorder so O2 is the reference level
+m = melt(d, id=c("TRT","Shelf"), value.name="germinated")
+names(m)[3] = "seedlot"
+
+m$n = 100
+@
+
+
+\section{Statistical approach}
+
+Initially I will look at the design-based analysis where we only consider treatment. Also, I will look at the seedlots individually and also together. 
+
+<<individual_analysis>>=
+for (i in 1:3)
+  print(summary(glm(cbind(germinated,n-germinated)~TRT, family=binomial, data=m, subset=seedlot==levels(m$seedlot)[i])))
+@
+
+All seedlots in single analysis
+
+<<all>>=
+mod <- glm(cbind(germinated,n-germinated)~TRT*seedlot, family=binomial, data=m)
+drop1(mod, test="Chi")
+summary(mod)
+@
+
+Interaction is not significant. 
+
+<<no_interaction>>=
+mod <- glm(cbind(germinated,n-germinated)~TRT+seedlot, family=binomial, data=m)
+summary(mod)
+@
+
+<<mod2>>=
+# Remove shelf
+m2 = ddply(m, .(seedlot,TRT), summarize, 
+             germinated = sum(germinated),
+             n = sum(n),
+             a = .5+germinated,
+             b = .5+n-germinated,
+             lcl = qbeta(.025, a, b),
+             ucl = qbeta(.975, a, b))
+m2
+@
+
+<<probabilities_of_larger>>=
+# DB.2013006.S..faberi 
+n = 1e3
+mean(rbeta(n,m2$a[1], m2$b[1]) > rbeta(n,m2$a[2], m2$b[2]))  # O2 bag > air bag
+mean(rbeta(n,m2$a[1], m2$b[1]) > rbeta(n,m2$a[3], m2$b[3]))  # O2 bag > trad bag
+mean(rbeta(n,m2$a[2], m2$b[2]) > rbeta(n,m2$a[3], m2$b[3]))  # air bag > trad bag
+
+# PI.509035...S..macrostachya
+mean(rbeta(n,m2$a[4], m2$b[4]) > rbeta(n,m2$a[5], m2$b[5]))  # O2 bag > air bag
+mean(rbeta(n,m2$a[4], m2$b[4]) > rbeta(n,m2$a[6], m2$b[6]))  # O2 bag > trad bag
+mean(rbeta(n,m2$a[5], m2$b[5]) > rbeta(n,m2$a[6], m2$b[6]))  # air bag > trad bag
+
+# PI.669940...S..faberi
+mean(rbeta(n,m2$a[7], m2$b[7]) > rbeta(n,m2$a[8], m2$b[8]))  # O2 bag > air bag
+mean(rbeta(n,m2$a[7], m2$b[7]) > rbeta(n,m2$a[9], m2$b[9]))  # O2 bag > trad bag
+mean(rbeta(n,m2$a[8], m2$b[8]) > rbeta(n,m2$a[9], m2$b[9]))  # air bag > trad bag
+
+
+
+@
+
+
+\subsection{Include shelf}
+
+We can also include shelf in the analysis as it appears to have an effect, but none of the results change. 
+
+<<>>=
+mod = glm(cbind(germinated,n-germinated)~.+TRT:seedlot+I(Shelf^2), data=m, family=binomial)
+drop1(mod, test="Chi")
+@
+
+Although the interaction for treatment and seed lot is marginally significant, we are dropping it because we don't really care about the effect of treatment on these particular seed lots but would rather have an average effect of treatment over a variety of seed lots. We could keep the interaction in but it will unnecessarily complicate the following analysis. 
+
+
+\paragraph{for report:} We performed a logistic regression to model the probability of germination with treatment, seed lot, shelf and shelf squared as explanatory variables. (consider including the analysis of deviance table in the report)
+
+<<>>=
+# Analysis of deviance table
+mod = glm(cbind(germinated,n-germinated)~.+I(Shelf^2), data=m, family=binomial)
+drop1(mod, test="Chi")
+@
+
+\paragraph{for report:} All explanatory variables were significant at the 0.05 level and thus retained in the model. 
+
+\subsection{Overall test for differences amongst treatments}
+
+
+
+\paragraph{for report:}
+The null hypothesis that the treatments were the same was rejected with a pvalue of \Sexpr{drop1(mod, test="Chi")[2,5]} using a drop-in-deviance test.
+
+
+\subsection{Test of treatments vs each other}
+
+
+<<>>=
+summary(mod)$coefficients[2:3,]
+(ci=confint(mod))
+@
+
+
+\paragraph{for report:} The multiplicate effect on the odds of germination in O2 vs air bag is \Sexpr{exp(-summary(mod)$coefficients[2,1])} with a 95\% confidence interval of (\Sexpr{exp(-ci[2,2])}, \Sexpr{exp(-ci[2,1])}). The multiplicate effect on the odds of germination in O2 vs traditional is \Sexpr{exp(-summary(mod)$coefficients[3,1])} with a 95\% confidence interval of (\Sexpr{exp(-ci[3,2])}, \Sexpr{exp(-ci[3,1])}). There was no significant difference between air bag and traditional treatment. 
+
+\vspace{0.2in}
+
+To interpret the odds ratio provided above, consider two probabilities:
+
+\begin{itemize}
+\item $p_{O2}$: the probability of germination for O2 treatment
+\item $p_{air}$: the probaiblity of germination for air bag treatment
+\end{itemize}
+
+The odds ratio is 
+\[ ratio = \frac{p_{O2}/(1-p_{O2})}{p_{air}/(1-p_{air})}.
+\]
+The odds ratio for O2 to air bag is estimated to be \Sexpr{exp(-summary(mod)$coefficients[2,1])}. 
+
+If the probabilities are small, then the odds are approximately equal to the probabilities. For example, if $p_{O2}\approx 0$, then $1-p_{O2}\approx 1$ and $p_{O2}/(1-p_{O2})\approx p_{O2}$. So, for small probabilities, the odds ratio estimated above can be consider the multiplicative effect on the probabilities themselves.
+
+<<>>=
+p_O2 = function(p_air, odds_ratio=exp(-summary(mod)$coefficients[3,1])) {
+  c = odds_ratio*p_air/(1-p_air)
+  c/(1+c)
+} 
+f = function(x) p_O2(x)
+curve(f, xlab="Traditional germination probability", ylab="O2 germination probability")
+abline(0,1,lty=2)
+p = range(d[c(4,6),3:5]/100)
+segments(p[1],0,p[2],0, col="red")
+text(mean(p),0,"Observed probabilities", pos=3, col="red", cex=.7)
+@
+
+\paragraph{for report:} An idealized seed lot with 20\% germination under traditional treatment, would be expected to have \Sexpr{round(100*p_O2(.2))}\% germination under O2 treatment with a 95\% prediction interval of (\Sexpr{round(100*p_O2(.2, exp(-ci[3,2])))}\%,\Sexpr{round(100*p_O2(.2,exp(-ci[3,1])))}\%). 
+
+\subsection{Estimated probabilities}
+
+<<>>=
+predict(mod, type="response")
+@
+
+
+
+\end{document}
